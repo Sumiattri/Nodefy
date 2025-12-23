@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
-// Schema for Gemini API request validation
-export const geminiRequestSchema = z.object({
+// Schema for LLM API request validation
+export const llmRequestSchema = z.object({
     model: z.string().min(1, 'Model is required'),
     systemPrompt: z.string().optional(),
     userPrompt: z.string().min(1, 'User prompt is required'),
     images: z.array(z.string()).optional(),
 });
 
-export type GeminiRequestSchema = z.infer<typeof geminiRequestSchema>;
+export type LLMRequestSchema = z.infer<typeof llmRequestSchema>;
 
 // Schema for workflow save/load
 export const workflowSchema = z.object({

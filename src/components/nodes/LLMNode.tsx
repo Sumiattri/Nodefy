@@ -3,7 +3,7 @@
 import React, { memo, useCallback, useState } from "react";
 import { Handle, Position, NodeProps } from "@xyflow/react";
 import { MoreHorizontal, Plus, ArrowRight, Loader2, ChevronDown } from "lucide-react";
-import { LLMNodeData, TextNodeData, ImageNodeData, GEMINI_MODELS } from "@/types/workflow";
+import { LLMNodeData, TextNodeData, ImageNodeData, OPENAI_MODELS } from "@/types/workflow";
 import { useWorkflowStore } from "@/store/workflowStore";
 
 const LLMNode = memo(({ id, data, selected }: NodeProps) => {
@@ -75,7 +75,7 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
         return;
       }
 
-      const response = await fetch("/api/gemini", {
+      const response = await fetch("/api/openai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -183,7 +183,7 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
               onChange={(e) => updateNodeData(id, { model: e.target.value })}
               className="appearance-none bg-[#1a1a1a] border border-[#3a3a3a] text-[#aaa] text-xs rounded px-2 py-1 pr-6 focus:outline-none focus:border-[#555] cursor-pointer hover:border-[#555]"
             >
-              {GEMINI_MODELS.map((model) => (
+              {OPENAI_MODELS.map((model) => (
                 <option key={model.id} value={model.id}>
                   {model.name}
                 </option>

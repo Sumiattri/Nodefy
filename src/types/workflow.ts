@@ -48,24 +48,24 @@ export interface Workflow {
 }
 
 // API types
-export interface GeminiRequest {
+export interface LLMRequest {
   model: string;
   systemPrompt?: string;
   userPrompt: string;
   images?: string[]; // base64 encoded images
 }
 
-export interface GeminiResponse {
+export interface LLMResponse {
   success: boolean;
   content?: string;
   error?: string;
 }
 
 // Supported OpenAI models with vision (text + image input)
-export const GEMINI_MODELS = [
+export const OPENAI_MODELS = [
   { id: "gpt-4o", name: "GPT-4o" },
   { id: "gpt-4o-mini", name: "GPT-4o Mini" },
   { id: "gpt-4-turbo", name: "GPT-4 Turbo" },
 ] as const;
 
-export type GeminiModel = (typeof GEMINI_MODELS)[number]["id"];
+export type OpenAIModel = (typeof OPENAI_MODELS)[number]["id"];
