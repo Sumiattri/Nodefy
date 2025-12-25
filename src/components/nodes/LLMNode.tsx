@@ -54,7 +54,23 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
     }
   }, [imageInputCount, id, updateNodeData]);
 
-  const collectInputs = useCallback(() => {
+  // Helper to convert image URL to base64
+  const urlToBase64 = async (url: string): Promise<string | null> => {
+    try {
+      const response = await fetch(url);
+      const blob = await response.blob();
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const collectInputs = useCallback(async () => {
     const incomingEdges = edges.filter((e) => e.target === id);
     const images: string[] = [];
     let promptText = "";
@@ -72,8 +88,12 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
           }
         } else if (sourceNode.type === "image") {
           const imageData = sourceNode.data as ImageNodeData;
+          // Use base64 if available, otherwise fetch from URL
           if (imageData.imageBase64) {
             images.push(imageData.imageBase64);
+          } else if (imageData.imageUrl?.startsWith('http')) {
+            const base64 = await urlToBase64(imageData.imageUrl);
+            if (base64) images.push(base64);
           }
         } else if (sourceNode.type === "llm") {
           const llmData = sourceNode.data as LLMNodeData;
@@ -98,7 +118,7 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
     updateNodeData(id, { isLoading: true, error: null, response: null, generatedImage: null });
 
     try {
-      const { images, promptText } = collectInputs();
+      const { images, promptText } = await collectInputs();
 
       // Use connected text first, then userPrompt, then systemPrompt as fallback
       const fullUserPrompt = promptText || nodeData.userPrompt || nodeData.systemPrompt || "";

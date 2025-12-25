@@ -68,6 +68,7 @@ interface WorkflowState {
   importWorkflow: (json: string) => void;
   setWorkflowName: (name: string) => void;
   createNewWorkflow: () => void;
+  resetWorkflow: () => void;
 }
 
 const generateId = () =>
@@ -508,6 +509,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     set({
       workflowId: `workflow_${Date.now()}`,
       workflowName: "Untitled Workflow",
+      nodes: [],
+      edges: [],
+      history: [],
+      historyIndex: -1,
+    });
+  },
+
+  resetWorkflow: () => {
+    set({
+      workflowId: "",
+      workflowName: "",
       nodes: [],
       edges: [],
       history: [],

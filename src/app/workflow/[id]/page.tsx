@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
@@ -16,6 +16,13 @@ export default function WorkflowEditorPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
+    // Track if workflow has been loaded from API to prevent saving empty state on refresh
+    const hasLoadedRef = useRef(false);
+    // Track which workflow ID was loaded to prevent cross-workflow saves
+    const loadedWorkflowIdRef = useRef<string | null>(null);
+    // Track when data was last loaded to prevent immediate auto-save after load
+    const lastLoadTimeRef = useRef<number>(0);
+
     const {
         workflowName,
         nodes,
@@ -24,6 +31,7 @@ export default function WorkflowEditorPage() {
         setWorkflowName,
         setNodes,
         setEdges,
+        resetWorkflow,
     } = useWorkflowStore();
 
     // Redirect if not authenticated
@@ -33,11 +41,22 @@ export default function WorkflowEditorPage() {
         }
     }, [status, router]);
 
-    // Load workflow
+    // Load workflow - reset flags when workflowId changes
     useEffect(() => {
         if (session && workflowId) {
+            // Reset load tracking when switching to a different workflow
+            hasLoadedRef.current = false;
+            loadedWorkflowIdRef.current = null;
+            setIsLoading(true);
+
             loadWorkflow();
         }
+
+        // Cleanup on unmount
+        return () => {
+            hasLoadedRef.current = false;
+            loadedWorkflowIdRef.current = null;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, workflowId]);
 
@@ -51,10 +70,33 @@ export default function WorkflowEditorPage() {
 
             const data = await res.json();
             if (data.workflow) {
+                // Verify we're still loading the same workflow (prevent race conditions)
+                if (data.workflow._id !== workflowId) {
+                    return;
+                }
+
+                // Debug: Log what we loaded from API
+                const loadedNodes = data.workflow.nodes || [];
+                const loadedEdges = data.workflow.edges || [];
+                console.log('[Load] Loaded workflow:', workflowId, {
+                    name: data.workflow.name,
+                    nodeCount: loadedNodes.length,
+                    edgeCount: loadedEdges.length,
+                    imageNodes: loadedNodes.filter((n: { type: string }) => n.type === 'image').map((n: { id: string; data: { imageBase64?: string } }) => ({
+                        id: n.id,
+                        hasBase64: !!n.data?.imageBase64,
+                    })),
+                });
+
                 setWorkflowId(data.workflow._id);
                 setWorkflowName(data.workflow.name);
-                setNodes(data.workflow.nodes || []);
-                setEdges(data.workflow.edges || []);
+                setNodes(loadedNodes);
+                setEdges(loadedEdges);
+
+                // Mark as loaded so auto-save can start working
+                hasLoadedRef.current = true;
+                loadedWorkflowIdRef.current = data.workflow._id;
+                lastLoadTimeRef.current = Date.now();
             }
         } catch (error) {
             console.error("Failed to load workflow:", error);
@@ -66,7 +108,13 @@ export default function WorkflowEditorPage() {
 
     // Auto-save function
     const saveWorkflow = useCallback(async () => {
-        if (!workflowId || isSaving) return;
+        // Don't save if workflow hasn't been loaded yet (prevents saving empty state on refresh)
+        // Also verify we're saving to the correct workflow (prevents cross-workflow saves)
+        if (!workflowId || isSaving || !hasLoadedRef.current || loadedWorkflowIdRef.current !== workflowId) return;
+
+        // Don't save within 3 seconds of initial load (let React Flow settle)
+        const timeSinceLoad = Date.now() - lastLoadTimeRef.current;
+        if (timeSinceLoad < 3000) return;
 
         // Don't save if any LLM node is currently loading
         const isAnyNodeLoading = nodes.some(
@@ -74,17 +122,42 @@ export default function WorkflowEditorPage() {
         );
         if (isAnyNodeLoading) return;
 
-        // Sanitize nodes - remove transient state before saving
+        // Sanitize nodes - remove transient state and strip base64 when URL exists
         const sanitizedNodes = nodes.map((node) => {
             if (node.type === "llm") {
                 const { isLoading, ...restData } = node.data as Record<string, unknown>;
                 return { ...node, data: { ...restData, isLoading: false } };
+            }
+            if (node.type === "image") {
+                const imageData = node.data as { imageUrl?: string; imageBase64?: string; label?: string };
+                // If we have a Cloudinary URL (starts with http), don't save the base64 to reduce DB size
+                if (imageData.imageUrl?.startsWith('http')) {
+                    return {
+                        ...node,
+                        data: {
+                            label: imageData.label,
+                            imageUrl: imageData.imageUrl,
+                            imageBase64: null // Strip base64 - it's huge and we have the URL
+                        }
+                    };
+                }
             }
             return node;
         });
 
         setIsSaving(true);
         try {
+            // Debug: Log what we're about to save
+            console.log('[AutoSave] Saving workflow:', workflowId, {
+                name: workflowName,
+                nodeCount: sanitizedNodes.length,
+                edgeCount: edges.length,
+                imageNodes: sanitizedNodes.filter(n => n.type === 'image').map(n => ({
+                    id: n.id,
+                    hasBase64: !!(n.data as { imageBase64?: string }).imageBase64,
+                })),
+            });
+
             await fetch(`/api/workflows/${workflowId}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },

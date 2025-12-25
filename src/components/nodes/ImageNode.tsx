@@ -1,8 +1,8 @@
 'use client';
 
-import React, { memo, useCallback, useRef } from 'react';
+import React, { memo, useCallback, useRef, useState } from 'react';
 import { Handle, Position, NodeProps } from '@xyflow/react';
-import { Trash2, ImageIcon, Upload, X } from 'lucide-react';
+import { Trash2, ImageIcon, Upload, X, Loader2 } from 'lucide-react';
 import { ImageNodeData } from '@/types/workflow';
 import { useWorkflowStore } from '@/store/workflowStore';
 
@@ -10,6 +10,7 @@ const ImageNode = memo(({ id, data, selected }: NodeProps) => {
     const nodeData = data as ImageNodeData;
     const { updateNodeData, deleteNode } = useWorkflowStore();
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [isUploading, setIsUploading] = useState(false);
 
     const handleLabelChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         updateNodeData(id, { label: e.target.value });
@@ -19,20 +20,55 @@ const ImageNode = memo(({ id, data, selected }: NodeProps) => {
         deleteNode(id);
     }, [id, deleteNode]);
 
+    // Upload image to Cloudinary
+    const uploadToCloudinary = useCallback(async (base64: string) => {
+        setIsUploading(true);
+        try {
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: base64 }),
+            });
+
+            const result = await response.json();
+
+            if (result.success && result.url) {
+                // Store Cloudinary URL instead of base64
+                updateNodeData(id, {
+                    imageUrl: result.url,
+                    imageBase64: base64, // Keep base64 for LLM API calls
+                });
+            } else {
+                console.error('Upload failed:', result.error);
+                // Fallback to base64 if upload fails
+                updateNodeData(id, {
+                    imageUrl: base64,
+                    imageBase64: base64,
+                });
+            }
+        } catch (error) {
+            console.error('Upload error:', error);
+            // Fallback to base64 if upload fails
+            updateNodeData(id, {
+                imageUrl: base64,
+                imageBase64: base64,
+            });
+        } finally {
+            setIsUploading(false);
+        }
+    }, [id, updateNodeData]);
+
     const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
             const reader = new FileReader();
             reader.onloadend = () => {
                 const base64 = reader.result as string;
-                updateNodeData(id, {
-                    imageUrl: URL.createObjectURL(file),
-                    imageBase64: base64,
-                });
+                uploadToCloudinary(base64);
             };
             reader.readAsDataURL(file);
         }
-    }, [id, updateNodeData]);
+    }, [uploadToCloudinary]);
 
     const handleDrop = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -41,14 +77,11 @@ const ImageNode = memo(({ id, data, selected }: NodeProps) => {
             const reader = new FileReader();
             reader.onloadend = () => {
                 const base64 = reader.result as string;
-                updateNodeData(id, {
-                    imageUrl: URL.createObjectURL(file),
-                    imageBase64: base64,
-                });
+                uploadToCloudinary(base64);
             };
             reader.readAsDataURL(file);
         }
-    }, [id, updateNodeData]);
+    }, [uploadToCloudinary]);
 
     const handleDragOver = useCallback((e: React.DragEvent) => {
         e.preventDefault();
@@ -60,6 +93,9 @@ const ImageNode = memo(({ id, data, selected }: NodeProps) => {
             imageBase64: null,
         });
     }, [id, updateNodeData]);
+
+    // Display URL (prefer Cloudinary URL, fallback to base64)
+    const displayImageSrc = nodeData.imageUrl || nodeData.imageBase64;
 
     return (
         <div
@@ -97,10 +133,15 @@ const ImageNode = memo(({ id, data, selected }: NodeProps) => {
                     className="hidden"
                 />
 
-                {nodeData.imageUrl ? (
+                {isUploading ? (
+                    <div className="w-full h-36 border-2 border-dashed border-[#2a2a2a] rounded flex flex-col items-center justify-center gap-2">
+                        <Loader2 className="w-6 h-6 text-[#888] animate-spin" />
+                        <span className="text-xs text-[#555]">Uploading...</span>
+                    </div>
+                ) : displayImageSrc ? (
                     <div className="relative">
                         <img
-                            src={nodeData.imageUrl}
+                            src={displayImageSrc}
                             alt="Uploaded"
                             className="w-full h-36 object-cover rounded border border-[#2a2a2a]"
                         />

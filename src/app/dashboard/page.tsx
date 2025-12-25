@@ -31,30 +31,14 @@ export default function DashboardPage() {
     useEffect(() => {
         if (status === "unauthenticated") {
             router.push("/login");
-        } else if (status === "authenticated" && !session) {
-            // Edge case: authenticated but no session data yet
-            setIsLoading(true);
-        }
-    }, [status, router, session]);
-
-    // Timeout: If status is "loading" for more than 3 seconds, redirect to login
-    useEffect(() => {
-        if (status === "loading") {
-            const timeout = setTimeout(() => {
-                router.push("/login");
-            }, 3000);
-            return () => clearTimeout(timeout);
         }
     }, [status, router]);
 
     useEffect(() => {
         if (session) {
             fetchWorkflows();
-        } else if (status === "unauthenticated") {
-            // Not logged in, stop loading
-            setIsLoading(false);
         }
-    }, [session, status]);
+    }, [session]);
 
     const fetchWorkflows = async () => {
         try {
@@ -118,22 +102,7 @@ export default function DashboardPage() {
         return date.toLocaleDateString();
     };
 
-    // Show loading only when session is actually loading, not when unauthenticated
-    if (status === "loading") {
-        return (
-            <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
-                <Loader2 className="w-8 h-8 text-white animate-spin" />
-            </div>
-        );
-    }
-
-    // Redirect happens in useEffect, just return null while redirecting
-    if (status === "unauthenticated") {
-        return null;
-    }
-
-    // Still loading workflows
-    if (isLoading) {
+    if (status === "loading" || isLoading) {
         return (
             <div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-white animate-spin" />
