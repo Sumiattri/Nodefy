@@ -122,7 +122,7 @@ export default function WorkflowEditorPage() {
         );
         if (isAnyNodeLoading) return;
 
-        // Sanitize nodes - remove transient state and strip base64 when URL exists
+        // Sanitize nodes - remove transient state and optimize image storage
         const sanitizedNodes = nodes.map((node) => {
             if (node.type === "llm") {
                 const { isLoading, ...restData } = node.data as Record<string, unknown>;
@@ -130,14 +130,27 @@ export default function WorkflowEditorPage() {
             }
             if (node.type === "image") {
                 const imageData = node.data as { imageUrl?: string; imageBase64?: string; label?: string };
-                // If we have a Cloudinary URL (starts with http), don't save the base64 to reduce DB size
+
+                // If we have a Cloudinary URL (starts with http), strip base64 to reduce DB size
                 if (imageData.imageUrl?.startsWith('http')) {
                     return {
                         ...node,
                         data: {
                             label: imageData.label,
                             imageUrl: imageData.imageUrl,
-                            imageBase64: null // Strip base64 - it's huge and we have the URL
+                            imageBase64: null
+                        }
+                    };
+                }
+
+                // If no Cloudinary URL but have base64, save the base64 as URL for display
+                if (imageData.imageBase64) {
+                    return {
+                        ...node,
+                        data: {
+                            label: imageData.label,
+                            imageUrl: imageData.imageBase64, // Store base64 as URL for display
+                            imageBase64: imageData.imageBase64
                         }
                     };
                 }
