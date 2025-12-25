@@ -1,26 +1,52 @@
 "use client";
 
-import React, { memo, useCallback, useState } from "react";
-import { Handle, Position, NodeProps } from "@xyflow/react";
+import React, { memo, useCallback, useState, useEffect } from "react";
+import { Handle, Position, NodeProps, useUpdateNodeInternals } from "@xyflow/react";
 import { MoreHorizontal, Plus, ArrowRight, Loader2, ChevronDown } from "lucide-react";
 import { LLMNodeData, TextNodeData, ImageNodeData, OPENAI_MODELS } from "@/types/workflow";
 import { useWorkflowStore } from "@/store/workflowStore";
 
 const LLMNode = memo(({ id, data, selected }: NodeProps) => {
   const nodeData = data as LLMNodeData;
-  const { updateNodeData, deleteNode, nodes, edges } = useWorkflowStore();
+  const { updateNodeData, deleteNode, deleteEdgeByHandle, nodes, edges } = useWorkflowStore();
   // Use imageInputCount from node data to persist across re-renders
   const imageInputCount = (nodeData.imageInputCount as number) || 1;
   const [showMenu, setShowMenu] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
 
+  // Hook to update React Flow's internal handle registry when handles change
+  const updateNodeInternals = useUpdateNodeInternals();
+
+  // Update node internals when imageInputCount changes to register new handles
+  useEffect(() => {
+    updateNodeInternals(id);
+  }, [id, imageInputCount, updateNodeInternals]);
+
   const connectedHandles = edges
     .filter((e) => e.target === id)
     .map((e) => e.targetHandle);
 
+  const connectedSourceHandles = edges
+    .filter((e) => e.source === id)
+    .map((e) => e.sourceHandle);
+
   const handleDelete = useCallback(() => {
     deleteNode(id);
   }, [id, deleteNode]);
+
+  // Double-click on a connected handle to delete the edge
+  // Single click is reserved for React Flow's connection handling
+  const handleHandleDoubleClick = useCallback((e: React.MouseEvent, handleId: string, handleType: "source" | "target") => {
+    const isConnected = handleType === "target"
+      ? connectedHandles.includes(handleId)
+      : connectedSourceHandles.includes(handleId);
+
+    if (isConnected) {
+      e.stopPropagation();
+      e.preventDefault();
+      deleteEdgeByHandle(id, handleId, handleType);
+    }
+  }, [id, connectedHandles, connectedSourceHandles, deleteEdgeByHandle]);
 
   const addImageInput = useCallback(() => {
     if (imageInputCount < 5) {
@@ -36,11 +62,12 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
     for (const edge of incomingEdges) {
       const sourceNode = nodes.find((n) => n.id === edge.source);
       if (sourceNode) {
-        const handleId = edge.targetHandle;
+        const targetHandle = edge.targetHandle;
+        const sourceHandle = edge.sourceHandle;
 
         if (sourceNode.type === "text") {
           const textData = sourceNode.data as TextNodeData;
-          if (textData.content && handleId === "prompt") {
+          if (textData.content && targetHandle === "prompt") {
             promptText = textData.content;
           }
         } else if (sourceNode.type === "image") {
@@ -50,8 +77,15 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
           }
         } else if (sourceNode.type === "llm") {
           const llmData = sourceNode.data as LLMNodeData;
-          if (llmData.response && handleId === "prompt") {
+
+          // Text output → prompt handle
+          if (llmData.response && targetHandle === "prompt" && sourceHandle === "output") {
             promptText = llmData.response;
+          }
+
+          // Image output → image handle (for chaining generated images)
+          if (llmData.generatedImage && targetHandle?.startsWith("image-") && sourceHandle === "image-output") {
+            images.push(llmData.generatedImage);
           }
         }
       }
@@ -61,16 +95,17 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
   }, [id, nodes, edges]);
 
   const handleRun = useCallback(async () => {
-    updateNodeData(id, { isLoading: true, error: null, response: null });
+    updateNodeData(id, { isLoading: true, error: null, response: null, generatedImage: null });
 
     try {
       const { images, promptText } = collectInputs();
 
-      const fullUserPrompt = promptText || nodeData.userPrompt || "";
+      // Use connected text first, then userPrompt, then systemPrompt as fallback
+      const fullUserPrompt = promptText || nodeData.userPrompt || nodeData.systemPrompt || "";
 
       if (!fullUserPrompt) {
         updateNodeData(id, {
-          error: "Please connect a Prompt input",
+          error: "Please connect a Prompt input or enter a system prompt",
           isLoading: false,
         });
         return;
@@ -90,7 +125,11 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
       const result = await response.json();
 
       if (result.success) {
-        updateNodeData(id, { response: result.content, isLoading: false });
+        updateNodeData(id, {
+          response: result.content,
+          generatedImage: result.image || null,
+          isLoading: false
+        });
       } else {
         updateNodeData(id, { error: result.error, isLoading: false });
       }
@@ -106,10 +145,10 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
 
   return (
     <div
-      className={`bg-[#2a2a2a] border rounded-xl shadow-lg transition-all duration-200 ${selected
+      className={`bg - [#2a2a2a] border rounded - xl shadow - lg transition - all duration - 200 ${selected
         ? "border-[#555] shadow-white/10"
         : "border-[#3a3a3a] hover:border-[#4a4a4a]"
-        }`}
+        } `}
       style={{ width: "380px" }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -119,8 +158,9 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
         type="target"
         position={Position.Left}
         id="prompt"
-        style={{ top: "60px" }}
-        className="!w-3 !h-3 !bg-[#c084fc] !border-2 !border-[#c084fc]"
+        style={{ top: "60px", cursor: connectedHandles.includes("prompt") ? "pointer" : "crosshair" }}
+        className={`!w-3 !h-3 !border-2 !border-[#c084fc] ${connectedHandles.includes("prompt") ? "!bg-[#c084fc]" : "!bg-transparent"}`}
+        onDoubleClick={(e) => handleHandleDoubleClick(e, "prompt", "target")}
       />
       {(showLabels || !connectedHandles.includes("prompt")) && (
         <div
@@ -136,16 +176,18 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
       {/* Image Handles */}
       {Array.from({ length: imageInputCount }).map((_, i) => {
         const handleId = `image-${i}`;
+        const isConnected = connectedHandles.includes(handleId);
         return (
           <React.Fragment key={i}>
             <Handle
               type="target"
               position={Position.Left}
               id={handleId}
-              style={{ top: `${90 + i * 30}px` }}
-              className="!w-3 !h-3 !bg-transparent !border-2 !border-[#34d399]"
+              style={{ top: `${90 + i * 30}px`, cursor: isConnected ? "pointer" : "crosshair" }}
+              className={`!w-3 !h-3 !border-2 !border-[#34d399] ${isConnected ? "!bg-[#34d399]" : "!bg-transparent"}`}
+              onDoubleClick={(e) => handleHandleDoubleClick(e, handleId, "target")}
             />
-            {(showLabels || !connectedHandles.includes(handleId)) && (
+            {(showLabels || !isConnected) && (
               <div
                 className="absolute text-xs text-[#34d399]"
                 style={{ left: "-55px", top: `${85 + i * 30}px` }}
@@ -157,13 +199,14 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
         );
       })}
 
-      {/* Output Handle */}
+      {/* Text Output Handle */}
       <Handle
         type="source"
         position={Position.Right}
         id="output"
-        style={{ top: "60px" }}
-        className="!w-3 !h-3 !bg-transparent !border-2 !border-[#c084fc]"
+        style={{ top: "60px", cursor: connectedSourceHandles.includes("output") ? "pointer" : "crosshair" }}
+        className={`!w-3 !h-3 !border-2 !border-[#c084fc] ${connectedSourceHandles.includes("output") ? "!bg-[#c084fc]" : "!bg-transparent"}`}
+        onDoubleClick={(e) => handleHandleDoubleClick(e, "output", "source")}
       />
       {showLabels && (
         <div
@@ -171,6 +214,24 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
           style={{ right: "-35px", top: "55px" }}
         >
           Text
+        </div>
+      )}
+
+      {/* Image Output Handle */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="image-output"
+        style={{ top: "90px", cursor: connectedSourceHandles.includes("image-output") ? "pointer" : "crosshair" }}
+        className={`!w-3 !h-3 !border-2 !border-[#34d399] ${connectedSourceHandles.includes("image-output") ? "!bg-[#34d399]" : "!bg-transparent"}`}
+        onDoubleClick={(e) => handleHandleDoubleClick(e, "image-output", "source")}
+      />
+      {showLabels && (
+        <div
+          className="absolute text-xs text-[#34d399]"
+          style={{ right: "-40px", top: "85px" }}
+        >
+          Image
         </div>
       )}
 
@@ -228,20 +289,45 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
 
       {/* Response Area */}
       <div className="p-4">
-        <div className="w-full min-h-[140px] bg-[#222] border border-[#3a3a3a] rounded-lg p-4">
+        <div className="w-full min-h-[140px] bg-[#222] border border-[#3a3a3a] rounded-lg p-4 max-h-[300px] overflow-y-auto">
           {nodeData.isLoading ? (
-            <div className="flex items-center justify-center h-[110px]">
+            <div className="flex flex-col items-center justify-center h-[110px] gap-2">
               <Loader2 className="w-6 h-6 text-[#888] animate-spin" />
+              <span className="text-xs text-[#666]">Analyzing intent & generating...</span>
             </div>
           ) : nodeData.error ? (
             <p className="text-sm text-red-400">{nodeData.error}</p>
-          ) : nodeData.response ? (
-            <p className="text-sm text-[#ccc] whitespace-pre-wrap">
-              {nodeData.response}
-            </p>
+          ) : (nodeData.response || nodeData.generatedImage) ? (
+            <div className="space-y-3">
+              {/* Generated Image - shown first/top */}
+              {nodeData.generatedImage && (
+                <div>
+                  <div className="relative rounded-lg overflow-hidden border border-[#3a3a3a]">
+                    <img
+                      src={nodeData.generatedImage}
+                      alt="Generated"
+                      className="w-full h-auto max-h-[200px] object-contain bg-[#1a1a1a]"
+                    />
+                  </div>
+                  <a
+                    href={nodeData.generatedImage}
+                    download="generated-image.png"
+                    className="inline-flex items-center gap-1 mt-2 text-xs text-[#34d399] hover:text-[#4ade80] transition-colors"
+                  >
+                    ↓ Download Image
+                  </a>
+                </div>
+              )}
+              {/* Text Response - shown below image */}
+              {nodeData.response && (
+                <p className="text-sm text-[#ccc] whitespace-pre-wrap">
+                  {nodeData.response}
+                </p>
+              )}
+            </div>
           ) : (
             <p className="text-sm text-[#666]">
-              The generated text will appear here
+              Text or image will appear here
             </p>
           )}
         </div>
@@ -274,3 +360,4 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
 LLMNode.displayName = "LLMNode";
 
 export default LLMNode;
+

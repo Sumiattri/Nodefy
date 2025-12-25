@@ -49,6 +49,7 @@ interface WorkflowState {
     data: Partial<TextNodeData | ImageNodeData | LLMNodeData>
   ) => void;
   deleteNode: (nodeId: string) => void;
+  deleteEdgeByHandle: (nodeId: string, handleId: string, handleType: "source" | "target") => void;
 
   // Undo/Redo
   saveHistory: () => void;
@@ -89,6 +90,7 @@ const createLLMNodeData = (): LLMNodeData => ({
   systemPrompt: "",
   userPrompt: "",
   response: null,
+  generatedImage: null,
   isLoading: false,
   error: null,
   imageInputCount: 1,
@@ -133,11 +135,18 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
     }
 
     // Bug fix #1: Validate connection types
-    // Image handles should only accept image nodes
+    // Image handles should only accept image nodes OR LLM image-output
     if (targetHandle && targetHandle.startsWith("image-")) {
       const sourceNode = nodes.find((n) => n.id === connection.source);
-      if (sourceNode && sourceNode.type !== "image") {
-        // Don't allow non-image nodes to connect to image handles
+      const sourceHandle = connection.sourceHandle;
+
+      // Allow: image nodes OR LLM nodes with image-output handle
+      const isValidImageSource =
+        sourceNode?.type === "image" ||
+        (sourceNode?.type === "llm" && sourceHandle === "image-output");
+
+      if (!isValidImageSource) {
+        // Don't allow non-image sources to connect to image handles
         return;
       }
     }
@@ -151,16 +160,17 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
       }
     }
 
+    // Create new edge
+    const newEdge = {
+      ...connection,
+      id: `edge_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      animated: true,
+      style: { stroke: "#444", strokeWidth: 2 },
+    };
+
     get().saveHistory();
     set({
-      edges: addEdge(
-        {
-          ...connection,
-          animated: true,
-          style: { stroke: "#444", strokeWidth: 2 },
-        },
-        get().edges
-      ),
+      edges: [...edges, newEdge],
     });
   },
 
@@ -207,6 +217,24 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
         (edge) => edge.source !== nodeId && edge.target !== nodeId
       ),
     });
+  },
+
+  deleteEdgeByHandle: (nodeId, handleId, handleType) => {
+    const { edges } = get();
+    const edgeToDelete = edges.find((edge) => {
+      if (handleType === "target") {
+        return edge.target === nodeId && edge.targetHandle === handleId;
+      } else {
+        return edge.source === nodeId && edge.sourceHandle === handleId;
+      }
+    });
+
+    if (edgeToDelete) {
+      get().saveHistory();
+      set({
+        edges: edges.filter((edge) => edge.id !== edgeToDelete.id),
+      });
+    }
   },
 
   saveHistory: () => {
@@ -328,6 +356,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           userPrompt:
             "Analyze this product and provide key selling points and target audience.",
           response: null,
+          generatedImage: null,
           isLoading: false,
           error: null,
         },
@@ -344,6 +373,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           userPrompt:
             "Create an engaging Instagram caption for this product with relevant hashtags.",
           response: null,
+          generatedImage: null,
           isLoading: false,
           error: null,
         },
@@ -359,6 +389,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           userPrompt:
             "Write an SEO-optimized meta description (under 160 characters) for this product.",
           response: null,
+          generatedImage: null,
           isLoading: false,
           error: null,
         },
@@ -374,6 +405,7 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
           userPrompt:
             "Based on the product analysis, write a compelling Amazon product listing with title, bullet points, and description.",
           response: null,
+          generatedImage: null,
           isLoading: false,
           error: null,
         },

@@ -128,6 +128,7 @@ const ImageNode = memo(({ id, data, selected }: NodeProps) => {
             <Handle
                 type="source"
                 position={Position.Right}
+                id="output"
                 style={{ top: '50%' }}
                 className="!w-3 !h-3 !bg-[#666] !border-2 !border-[#888] !transform-none"
             />

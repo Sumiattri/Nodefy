@@ -68,6 +68,21 @@ export default function WorkflowEditorPage() {
     const saveWorkflow = useCallback(async () => {
         if (!workflowId || isSaving) return;
 
+        // Don't save if any LLM node is currently loading
+        const isAnyNodeLoading = nodes.some(
+            (node) => node.type === "llm" && (node.data as { isLoading?: boolean }).isLoading
+        );
+        if (isAnyNodeLoading) return;
+
+        // Sanitize nodes - remove transient state before saving
+        const sanitizedNodes = nodes.map((node) => {
+            if (node.type === "llm") {
+                const { isLoading, ...restData } = node.data as Record<string, unknown>;
+                return { ...node, data: { ...restData, isLoading: false } };
+            }
+            return node;
+        });
+
         setIsSaving(true);
         try {
             await fetch(`/api/workflows/${workflowId}`, {
@@ -75,7 +90,7 @@ export default function WorkflowEditorPage() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     name: workflowName,
-                    nodes,
+                    nodes: sanitizedNodes,
                     edges,
                 }),
             });

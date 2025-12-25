@@ -22,6 +22,7 @@ export interface LLMNodeData {
   systemPrompt: string;
   userPrompt: string;
   response: string | null;
+  generatedImage: string | null; // Base64 image from Clipdrop
   isLoading: boolean;
   error: string | null;
   imageInputCount?: number; // Number of image input handles (default: 1)
@@ -59,6 +60,7 @@ export interface LLMRequest {
 export interface LLMResponse {
   success: boolean;
   content?: string;
+  image?: string; // base64 generated image from Clipdrop
   error?: string;
 }
 

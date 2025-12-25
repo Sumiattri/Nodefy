@@ -9,6 +9,9 @@ import {
     ReactFlowProvider,
     Panel,
     useReactFlow,
+    reconnectEdge,
+    Edge,
+    Connection,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { ZoomIn, ZoomOut, Maximize2, Lock, Unlock, Undo2, Redo2 } from 'lucide-react';
@@ -30,10 +33,31 @@ interface CanvasProps {
 }
 
 const CanvasInner: React.FC<CanvasProps> = ({ onDragOver, onDrop }) => {
-    const { nodes, edges, onNodesChange, onEdgesChange, onConnect, deleteNode, undo, redo, canUndo, canRedo } = useWorkflowStore();
+    const { nodes, edges, onNodesChange, onEdgesChange, onConnect, setEdges, deleteNode, undo, redo, canUndo, canRedo } = useWorkflowStore();
     const reactFlowWrapper = useRef<HTMLDivElement>(null);
     const { zoomIn, zoomOut, fitView } = useReactFlow();
     const [isLocked, setIsLocked] = useState(false);
+    const edgeReconnectSuccessful = useRef(true);
+
+    // Handle edge reconnection start
+    const onReconnectStart = useCallback(() => {
+        edgeReconnectSuccessful.current = false;
+    }, []);
+
+    // Handle edge reconnection
+    const onReconnect = useCallback((oldEdge: Edge, newConnection: Connection) => {
+        edgeReconnectSuccessful.current = true;
+        setEdges(reconnectEdge(oldEdge, newConnection, edges));
+    }, [edges, setEdges]);
+
+    // Handle edge reconnection end - delete if dropped on empty space
+    const onReconnectEnd = useCallback((_: MouseEvent | TouchEvent, edge: Edge) => {
+        if (!edgeReconnectSuccessful.current) {
+            // Edge was dropped on empty space, delete it
+            setEdges(edges.filter((e) => e.id !== edge.id));
+        }
+        edgeReconnectSuccessful.current = true;
+    }, [edges, setEdges]);
 
     const handleKeyDown = useCallback(
         (event: React.KeyboardEvent) => {
@@ -69,6 +93,9 @@ const CanvasInner: React.FC<CanvasProps> = ({ onDragOver, onDrop }) => {
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onConnect={onConnect}
+                onReconnect={onReconnect}
+                onReconnectStart={onReconnectStart}
+                onReconnectEnd={onReconnectEnd}
                 nodeTypes={nodeTypes}
                 onDragOver={onDragOver}
                 onDrop={onDrop}
