@@ -24,6 +24,7 @@ export interface LLMNodeData {
   response: string | null;
   isLoading: boolean;
   error: string | null;
+  imageInputCount?: number; // Number of image input handles (default: 1)
   [key: string]: unknown;
 }
 

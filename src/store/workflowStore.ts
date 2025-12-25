@@ -91,6 +91,7 @@ const createLLMNodeData = (): LLMNodeData => ({
   response: null,
   isLoading: false,
   error: null,
+  imageInputCount: 1,
 });
 
 export const useWorkflowStore = create<WorkflowState>((set, get) => ({
@@ -118,12 +119,34 @@ export const useWorkflowStore = create<WorkflowState>((set, get) => ({
   },
 
   onConnect: (connection) => {
-    // Validate connection: image handles should only accept image nodes
+    const { nodes, edges } = get();
     const targetHandle = connection.targetHandle;
+
+    // Bug fix #2: Check if target handle already has a connection
+    // Prevent multiple connections to the same target handle
+    const existingConnection = edges.find(
+      (edge) => edge.target === connection.target && edge.targetHandle === targetHandle
+    );
+    if (existingConnection) {
+      // Target handle already has a connection - don't allow another
+      return;
+    }
+
+    // Bug fix #1: Validate connection types
+    // Image handles should only accept image nodes
     if (targetHandle && targetHandle.startsWith("image-")) {
-      const sourceNode = get().nodes.find((n) => n.id === connection.source);
+      const sourceNode = nodes.find((n) => n.id === connection.source);
       if (sourceNode && sourceNode.type !== "image") {
         // Don't allow non-image nodes to connect to image handles
+        return;
+      }
+    }
+
+    // Prompt handle should only accept text nodes or LLM output
+    if (targetHandle === "prompt") {
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      if (sourceNode && sourceNode.type === "image") {
+        // Don't allow image nodes to connect to prompt handles
         return;
       }
     }

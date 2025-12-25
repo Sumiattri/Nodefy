@@ -9,7 +9,8 @@ import { useWorkflowStore } from "@/store/workflowStore";
 const LLMNode = memo(({ id, data, selected }: NodeProps) => {
   const nodeData = data as LLMNodeData;
   const { updateNodeData, deleteNode, nodes, edges } = useWorkflowStore();
-  const [imageInputCount, setImageInputCount] = useState(1);
+  // Use imageInputCount from node data to persist across re-renders
+  const imageInputCount = (nodeData.imageInputCount as number) || 1;
   const [showMenu, setShowMenu] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
 
@@ -23,9 +24,9 @@ const LLMNode = memo(({ id, data, selected }: NodeProps) => {
 
   const addImageInput = useCallback(() => {
     if (imageInputCount < 5) {
-      setImageInputCount((prev) => prev + 1);
+      updateNodeData(id, { imageInputCount: imageInputCount + 1 });
     }
-  }, [imageInputCount]);
+  }, [imageInputCount, id, updateNodeData]);
 
   const collectInputs = useCallback(() => {
     const incomingEdges = edges.filter((e) => e.target === id);
